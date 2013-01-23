@@ -47,7 +47,11 @@ LinearKalmanFilter.prototype.observe = function(measurementVector) {
 			.multiply(this.observationMatrix.transpose())
 			.add(this.measurementErrorEstimate);
 	} else {
-		this.innovation = Matrix.Zero(measurementVector.dimensions().rows, measurementVector.dimensions().cols);
+		this.innovation = Matrix.Zero(this.stateEstimate.dimensions().rows, this.stateEstimate.dimensions().cols);
+
+		if (this.innovationCovariance === null) {
+			this.innovationCovariance = Matrix.I(this.stateEstimate.dimensions().rows);
+		}
 	}
 };
 
@@ -59,7 +63,6 @@ LinearKalmanFilter.prototype.update = function() {
 	this.stateEstimate = this.predictedStateEstimate
 			.add(this.kalmanGain.multiply(this.innovation));
 
-	//this.covarianceEstimate = this.covarianceEstimate.identity()
 	this.covarianceEstimate = Matrix.I(this.covarianceEstimate.dimensions().rows)
 			.subtract(this.kalmanGain.multiply(this.observationMatrix))
 			.multiply(this.predictedProbabilityEstimate);
@@ -71,7 +74,7 @@ LinearKalmanFilter.prototype.inspect = function() {
 			continue;
 		}
 
-		console.log(key, this[key].inspect());
+		console.log(key, '\n' + this[key].inspect());
 	}
 };
 
