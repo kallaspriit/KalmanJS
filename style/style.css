@@ -1,0 +1,24 @@
+BODY, HTML {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+}
+.plot-main {
+	width: 50%;
+	height: 690px;
+	float: left;
+}
+.plot-sub {
+	width: 25%;
+	height: 230px;
+	float: left;
+}
+#controls {
+	clear: both;
+}
+#controls P {
+	width: 22%;
+	float: left;
+	margin-left: 40px;
+}
