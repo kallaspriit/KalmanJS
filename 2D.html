@@ -8,7 +8,7 @@
 	<link rel="stylesheet" href="lib/jquery/jquery.slider-1.3.css" type="text/css">
 	<script src="common.js"></script>
 	<script src="lib/plotjs/PlotJS.js"></script>
-	<script src="lib/kalmanjs/Math.js"></script>
+	<script src="lib/sylvester/sylvester.js"></script>
 	<script src="lib/kalmanjs/LinearKalmanFilter.js"></script>
 	<link rel="stylesheet" href="style/style.css">
 </head>
@@ -110,30 +110,30 @@
 		// 0,  0, 1, ts  =>  y(n+1) =              y(n) + vy(n)
 		// 0,  0, 0,  1  => vy(n+1) =                     vy(n)
 		// Remember, acceleration gets added to these at the control vector.
-		var stateTransitionMatrix = new Math.Matrix4x4(
-			1, options.dt, 0, 0,
-			0, 1, 0, 0,
-			0, 0, 1, options.dt,
-			0, 0, 0, 1
-		);
+		var stateTransitionMatrix = $M([
+			[1, options.dt, 0, 0],
+			[0, 1, 0, 0],
+			[0, 0, 1, options.dt],
+			[0, 0, 0, 1]
+		]);
 
 		// The control vector, which adds acceleration to the kinematic equations.
 		// 0          =>  x(n+1) =  x(n+1)
 		// 0          => vx(n+1) = vx(n+1)
 		// -9.81*ts^2 =>  y(n+1) =  y(n+1) + 0.5*-9.81*ts^2
 		// -9.81*ts   => vy(n+1) = vy(n+1) + -9.81*ts
-		var controlMatrix = new Math.Matrix4x4(
-				0, 0, 0, 0,
-				0, 0, 0, 0,
-				0, 0, 1, 0,
-				0, 0, 0, 1
-			),
-			controlVector = new Math.Matrix4x1(
-				0,
-				0,
-				0.5 * options.gravity * options.dt * options.dt,
-				options.gravity * options.dt
-			);
+		var controlMatrix = $M([
+				[0, 0, 0, 0],
+				[0, 0, 0, 0],
+				[0, 0, 1, 0],
+				[0, 0, 0, 1]
+			]),
+			controlVector = $M([
+				[0],
+				[0],
+				[0.5 * options.gravity * options.dt * options.dt],
+				[options.gravity * options.dt]
+			]);
 
 		// After state transition and control, here are the equations:
 		//  x(n+1) = x(n) + vx(n)
@@ -144,39 +144,39 @@
 
 		// Observation matrix is the identity matrix, since we can get direct
 		// measurements of all values in our example.
-		var observationMatrix = new Math.Matrix4x4(
-			1, 0, 0, 0,
-			0, 1, 0, 0,
-			0, 0, 1, 0,
-			0, 0, 0, 1
-		);
+		var observationMatrix = $M([
+			[1, 0, 0, 0],
+			[0, 1, 0, 0],
+			[0, 0, 1, 0],
+			[0, 0, 0, 1]
+		]);
 
 		// This is our guess of the initial state.  I intentionally set the Y value
 		// wrong to illustrate how fast the Kalman filter will pick up on that.
-		var initialStateEstimate = new Math.Matrix4x1(
-				startPosX,
-				startVelocityX,
-				startPosY,
-				startVelocityY
-			),
-			initialCovarianceEstimate = new Math.Matrix4x4(
-				options.initialCovariance, 0, 0, 0,
-				0, options.initialCovariance, 0, 0,
-				0, 0, options.initialCovariance, 0,
-				0, 0, 0, options.initialCovariance
-			),
-			processErrorEstimate = new Math.Matrix4x4(
-				options.processError, 0, 0, 0,
-				0, options.processError, 0, 0,
-				0, 0, options.processError, 0,
-				0, 0, 0, options.processError
-			),
-			measurementErrorEstimate = new Math.Matrix4x4(
-				options.measurementError, 0, 0, 0,
-				0, options.measurementError, 0, 0,
-				0, 0, options.measurementError, 0,
-				0, 0, 0, options.measurementError
-			);
+		var initialStateEstimate = $M([
+				[startPosX],
+				[startVelocityX],
+				[startPosY],
+				[startVelocityY]
+			]),
+			initialCovarianceEstimate = $M([
+				[options.initialCovariance, 0, 0, 0],
+				[0, options.initialCovariance, 0, 0],
+				[0, 0, options.initialCovariance, 0],
+				[0, 0, 0, options.initialCovariance]
+			]),
+			processErrorEstimate = $M([
+				[options.processError, 0, 0, 0],
+				[0, options.processError, 0, 0],
+				[0, 0, options.processError, 0],
+				[0, 0, 0, options.processError]
+			]),
+			measurementErrorEstimate = $M([
+				[options.measurementError, 0, 0, 0],
+				[0, options.measurementError, 0, 0],
+				[0, 0, options.measurementError, 0],
+				[0, 0, 0, options.measurementError]
+			]);
 
 		var filter = new LinearKalmanFilter(
 				stateTransitionMatrix,
@@ -223,12 +223,12 @@
 			velocityX = cannon.getVelocityX();
 			velocityY = cannon.getVelocityY();
 
-			measurementVector = new Math.Matrix4x1(
-				measurementX,
-				velocityX,
-				measurementY,
-				velocityY
-			);
+			measurementVector = $M([
+				[measurementX],
+				[velocityX],
+				[measurementY],
+				[velocityY]
+			]);
 
 			filter.predict(controlVector);
 			filter.observe(realX < options.observationCutoff ? measurementVector : null);
@@ -239,42 +239,42 @@
 				x: covariance.a11
 			}*/
 
-			filterX = filterState.a11;
-			filterY = filterState.a31;
+			filterX = filterState.e(1, 1);
+			filterY = filterState.e(3, 1);
 
 			realPos[realX] = realY;
 			measuredPos[measurementX] = measurementY;
 			filterPos[filterX] = filterY;
 
-			predictedPosY.push(filter.predictedStateEstimate.a31);
-			predictedPosX.push(filter.predictedStateEstimate.a11);
-			predictedVelY.push(filter.predictedStateEstimate.a41);
-			predictedVelX.push(filter.predictedStateEstimate.a21);
+			predictedPosY.push(filter.predictedStateEstimate.e(3, 1));
+			predictedPosX.push(filter.predictedStateEstimate.e(1, 1));
+			predictedVelY.push(filter.predictedStateEstimate.e(4, 1));
+			predictedVelX.push(filter.predictedStateEstimate.e(2, 1));
 
-			probabilityPosY.push(filter.predictedProbabilityEstimate.a31);
-			probabilityPosX.push(filter.predictedProbabilityEstimate.a11);
-			probabilityVelY.push(filter.predictedProbabilityEstimate.a41);
-			probabilityVelX.push(filter.predictedProbabilityEstimate.a21);
+			probabilityPosY.push(filter.predictedProbabilityEstimate.e(3, 1));
+			probabilityPosX.push(filter.predictedProbabilityEstimate.e(1, 1));
+			probabilityVelY.push(filter.predictedProbabilityEstimate.e(4, 1));
+			probabilityVelX.push(filter.predictedProbabilityEstimate.e(2, 1));
 
-			covariancePosY.push(filter.covarianceEstimate.a31);
-			covariancePosX.push(filter.covarianceEstimate.a11);
-			covarianceVelY.push(filter.covarianceEstimate.a41);
-			covarianceVelX.push(filter.covarianceEstimate.a21);
+			covariancePosY.push(filter.covarianceEstimate.e(3, 1));
+			covariancePosX.push(filter.covarianceEstimate.e(1, 1));
+			covarianceVelY.push(filter.covarianceEstimate.e(4, 1));
+			covarianceVelX.push(filter.covarianceEstimate.e(2, 1));
 
-			gainPosY.push(filter.kalmanGain.a31);
-			gainPosX.push(filter.kalmanGain.a11);
-			gainVelY.push(filter.kalmanGain.a41);
-			gainVelX.push(filter.kalmanGain.a21);
+			gainPosY.push(filter.kalmanGain.e(3, 1));
+			gainPosX.push(filter.kalmanGain.e(1, 1));
+			gainVelY.push(filter.kalmanGain.e(4, 1));
+			gainVelX.push(filter.kalmanGain.e(2, 1));
 
-			innovationPosY.push(filter.innovation.a31);
-			innovationPosX.push(filter.innovation.a11);
-			innovationVelY.push(filter.innovation.a41);
-			innovationVelX.push(filter.innovation.a21);
+			innovationPosY.push(filter.innovation.e(3, 1));
+			innovationPosX.push(filter.innovation.e(1, 1));
+			innovationVelY.push(filter.innovation.e(4, 1));
+			innovationVelX.push(filter.innovation.e(2, 1));
 
-			innovationCovariancePosY.push(filter.innovationCovariance.a31);
-			innovationCovariancePosX.push(filter.innovationCovariance.a11);
-			innovationCovarianceVelY.push(filter.innovationCovariance.a41);
-			innovationCovarianceVelX.push(filter.innovationCovariance.a21);
+			innovationCovariancePosY.push(filter.innovationCovariance.e(3, 1));
+			innovationCovariancePosX.push(filter.innovationCovariance.e(1, 1));
+			innovationCovarianceVelY.push(filter.innovationCovariance.e(4, 1));
+			innovationCovarianceVelX.push(filter.innovationCovariance.e(2, 1));
 
 			step++;
 
@@ -390,9 +390,9 @@
 		['muzzleVelocity',      50.0,       0,          100,        1],
 		['angle',               60.0,       1,          90,         1],
 		['gravity',             -9.81,      -20,        0,          0.1],
-		['initialCovariance',   5.0,        0,          100,        1],
-		['processError',        0.1,        0,          1,          0.001],
-		['measurementError',    30,         0,          100,        0.1],
+		['initialCovariance',   50.0,       0,          100,        1],
+		['processError',        0.0,        0,          1,          0.001],
+		['measurementError',    50,         0,          100,        0.1],
 		['noise',               10.0,       0,          50,         1],
 		['dt',                  0.02,       0.01,       0.2,        0.01],
 		['observationCutoff',   250,        10,         500,       10]

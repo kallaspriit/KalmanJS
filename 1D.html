@@ -8,8 +8,7 @@
 	<link rel="stylesheet" href="lib/jquery/jquery.slider-1.3.css" type="text/css">
     <script src="common.js"></script>
     <script src="lib/plotjs/PlotJS.js"></script>
-    <script src="lib/sylvester/sylvester.src.js"></script>
-    <script src="lib/kalmanjs/Math.js"></script>
+    <script src="lib/sylvester/sylvester.js"></script>
     <script src="lib/kalmanjs/LinearKalmanFilter.js"></script>
 	<link rel="stylesheet" href="style/style.css">
 </head>
@@ -54,14 +53,14 @@
 			return Math.randomGaussian(this.noise, this.getRealValue(i));
 		};
 
-		var stateTransitionMatrix = new Math.Matrix1x1(options.stateTransition),		// A
-			controlMatrix = new Math.Matrix1x1(0),                                      // B
-			observationMatrix = new Math.Matrix1x1(options.observation),			    // H
-			initialStateEstimate = new Math.Matrix1x1(options.initialState),                 // X
-			initialCovarianceEstimate = new Math.Matrix1x1(options.initialCovariance),         // P
-			processErrorEstimate = new Math.Matrix1x1(options.processError),            // Q
-			measurementErrorEstimate = new Math.Matrix1x1(options.measurementError),    // R
-			controlVector = new Math.Matrix1x1(0),
+		var stateTransitionMatrix       = $M([[options.stateTransition]]),      // A
+			controlMatrix               = $M([[0]]),                            // B
+			observationMatrix           = $M([[options.observation]]),          // H
+			initialStateEstimate        = $M([[options.initialState]]),         // X
+			initialCovarianceEstimate   = $M([[options.initialCovariance]]),    // P
+			processErrorEstimate        = $M([[options.processError]]),         // Q
+			measurementErrorEstimate    = $M([[options.measurementError]]),     // R
+			controlVector               = $M([[0]]),                            // C
 			measurementVector,
 			filter = new LinearKalmanFilter(
 				stateTransitionMatrix,
@@ -103,21 +102,21 @@
 		for (i = 0; i < options.iterations; i++) {
 			measuredValue = process.getMeasuredValue(i);
 
-			measurementVector = new Math.Matrix1x1(measuredValue);
+			measurementVector = $M([[measuredValue]]);
 
 			filter.predict(controlVector);
 			filter.observe(i < options.observationCutoff ? measurementVector : null);
 			filter.update();
 
 			realValue = process.getRealValue(i);
-			filteredValue = filter.getStateEstimate().a11;
+			filteredValue = filter.getStateEstimate().e(1, 1);
 
-			predictedState = filter.predictedStateEstimate.a11;
-			predictedProbability = filter.predictedProbabilityEstimate.a11;
-			covariance = filter.covarianceEstimate.a11;
-			gain = filter.kalmanGain.a11;
-			innovation = filter.innovation.a11;
-			innovationCovariance = filter.innovationCovariance.a11;
+			predictedState = filter.predictedStateEstimate.e(1, 1);
+			predictedProbability = filter.predictedProbabilityEstimate.e(1, 1);
+			covariance = filter.covarianceEstimate.e(1, 1);
+			gain = filter.kalmanGain.e(1, 1);
+			innovation = filter.innovation.e(1, 1);
+			innovationCovariance = filter.innovationCovariance.e(1, 1);
 
 			realValues.push(realValue);
 			measuredValues.push(measuredValue);
