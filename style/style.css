@@ -22,3 +22,17 @@ BODY, HTML {
 	float: left;
 	margin-left: 40px;
 }
+#github {
+	position: absolute;
+	left: 1px;
+	top: 1px;
+}
+#github A {
+	display: block;
+	float: left;
+	line-height: 24px;
+	padding: 0 10px;
+	color: #FFF;
+	background-color: rgba(0, 0, 0, 0.5);
+	margin: 0 1px 0 0;
+}
