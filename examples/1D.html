@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>KalmanJS :: Singe Variable Linear Kalman Filter</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+	<script src="lib/jquery/jquery-1.8.2.min.js"></script>
+	<script src="lib/jquery/jquery.slider-1.3.js"></script>
+	<link rel="stylesheet" href="lib/jquery/jquery.slider-1.3.css" type="text/css">
+    <script src="common.js"></script>
+    <script src="lib/plotjs/PlotJS.js"></script>
+    <script src="lib/sylvester/sylvester.js"></script>
+    <script src="lib/kalmanjs/LinearKalmanFilter.js"></script>
+	<link rel="stylesheet" href="style/style.css">
+</head>
+<body>
+    <canvas id="data-plot" class="plot-main"></canvas>
+    <canvas id="predicted-state-plot" class="plot-sub"></canvas>
+    <canvas id="predicted-probability-plot" class="plot-sub"></canvas>
+    <canvas id="covariance-plot" class="plot-sub"></canvas>
+    <canvas id="gain-plot" class="plot-sub"></canvas>
+    <canvas id="innovation-plot" class="plot-sub"></canvas>
+    <canvas id="innovation-covariance-plot" class="plot-sub"></canvas>
+
+    <div id="controls"></div>
+
+	<script>
+
+	var options = {
+		offset: 0.0,
+		stateTransition: 1.0,
+		observation: 1.0,
+		initialState: 1.0,
+		initialCovariance: 1.0,
+		processError: 0.001,
+		measurementError: 0.001,
+		noise: 0.25,
+		iterations: 1000,
+		observationCutoff: 1000
+	};
+
+	function run() {
+		// Single-variable linear Kalman Filter
+		Process = function(offset, noise) {
+			this.offset = offset;
+			this.noise = noise;
+		};
+
+		Process.prototype.getRealValue = function(i) {
+			return this.offset;
+		};
+
+		Process.prototype.getMeasuredValue = function(i) {
+			return Math.randomGaussian(this.noise, this.getRealValue(i));
+		};
+
+		var stateTransitionMatrix       = $M([[options.stateTransition]]),      // A
+			controlMatrix               = $M([[0]]),                            // B
+			observationMatrix           = $M([[options.observation]]),          // H
+			initialStateEstimate        = $M([[options.initialState]]),         // X
+			initialCovarianceEstimate   = $M([[options.initialCovariance]]),    // P
+			processErrorEstimate        = $M([[options.processError]]),         // Q
+			measurementErrorEstimate    = $M([[options.measurementError]]),     // R
+			controlVector               = $M([[0]]),                            // C
+			measurementVector,
+			filter = new LinearKalmanFilter(
+				stateTransitionMatrix,
+				controlMatrix,
+				observationMatrix,
+				initialStateEstimate,
+				initialCovarianceEstimate,
+				processErrorEstimate,
+				measurementErrorEstimate
+			),
+			process = new Process(options.offset, options.noise),
+			dataPlot = new PlotJS(),
+			predictedStatePlot = new PlotJS(),
+			predictedProbabilityPlot = new PlotJS(),
+			covariancePlot = new PlotJS(),
+			gainPlot = new PlotJS(),
+			innovationPlot = new PlotJS(),
+			innovationCovariancePlot = new PlotJS(),
+			realValues = [],
+			measuredValues = [],
+			filteredValues = [],
+			predictedStateValues = [],
+			predictionProbabilityValues = [],
+			covarianceValues = [],
+			gainValues = [],
+			innovationValues = [],
+			innovationCovarianceValues = [],
+			realValue,
+			measuredValue,
+			filteredValue,
+			predictedState,
+			predictedProbability,
+			covariance,
+			gain,
+			innovation,
+			innovationCovariance,
+			i;
+
+		for (i = 0; i < options.iterations; i++) {
+			measuredValue = process.getMeasuredValue(i);
+
+			measurementVector = $M([[measuredValue]]);
+
+			filter.predict(controlVector);
+			filter.observe(i < options.observationCutoff ? measurementVector : null);
+			filter.update();
+
+			realValue = process.getRealValue(i);
+			filteredValue = filter.getStateEstimate().e(1, 1);
+
+			predictedState = filter.predictedStateEstimate.e(1, 1);
+			predictedProbability = filter.predictedProbabilityEstimate.e(1, 1);
+			covariance = filter.covarianceEstimate.e(1, 1);
+			gain = filter.kalmanGain.e(1, 1);
+			innovation = filter.innovation.e(1, 1);
+			innovationCovariance = filter.innovationCovariance.e(1, 1);
+
+			realValues.push(realValue);
+			measuredValues.push(measuredValue);
+			filteredValues.push(filteredValue);
+
+			predictedStateValues.push(predictedState);
+			predictionProbabilityValues.push(predictedProbability);
+			covarianceValues.push(covariance);
+			gainValues.push(gain);
+			innovationValues.push(innovation);
+			innovationCovarianceValues.push(innovationCovariance);
+
+			//console.log(filter);
+		}
+
+		dataPlot
+			.addData(realValues, 'Real values')
+			.addData(measuredValues, 'Measured values')
+			.addData(filteredValues, 'Filtered values')
+			.setTitle('Linear Kalman Filter')
+			.draw('data-plot', {
+				showPoints: false,
+				drawLegend: true,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: 0,
+				rangeMax: 10
+			});
+
+		predictedStatePlot
+			.addData(predictedStateValues)
+			.setTitle('State estimate')
+			.draw('predicted-state-plot', {
+			showPoints: false,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: -1,
+				rangeMax: 1
+			});
+
+		predictedProbabilityPlot
+			.addData(predictionProbabilityValues)
+			.setTitle('Probability estimate')
+			.draw('predicted-probability-plot', {
+			showPoints: false,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: -1,
+				rangeMax: 1
+			});
+
+		covariancePlot
+			.addData(covarianceValues)
+			.setTitle('Covariance estimate')
+			.draw('covariance-plot', {
+			showPoints: false,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: 0,
+				rangeMax: 1
+			});
+
+		gainPlot
+			.addData(gainValues)
+			.setTitle('Kalman gain')
+			.draw('gain-plot', {
+			showPoints: false,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: 0,
+				rangeMax: 1
+			});
+
+		innovationPlot
+			.addData(innovationValues)
+			.setTitle('Innovation')
+			.draw('innovation-plot', {
+			showPoints: false,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: -5,
+				rangeMax: 5
+			});
+
+		innovationCovariancePlot
+			.addData(innovationCovarianceValues)
+			.setTitle('Innovation covariance')
+			.draw('innovation-covariance-plot', {
+			showPoints: false,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: -1,
+				rangeMax: 1
+			});
+
+		window.filter = filter;
+	};
+
+	var controls = [
+		// control              value       min         max         step
+		['offset',			    5,			0,			10,			0.1],
+		//['stateTransition',		1,			0,			2,			0.1],
+		//['observation',			1,			0,			2,			0.1],
+		['initialState',	    0,			-5,			5,			0.1],
+		['initialCovariance',	50,			0,		    100,	    1],
+		['processError',		0.0,		0.0,		0.1,		0.0001],
+		['measurementError',    0.25,		0.01,		2,			0.01],
+		['noise',			    2.0,		0,			4,			0.1],
+		['iterations',			1000,		10,			2000,		10],
+		['observationCutoff',	1000,		10,			2000,		10]
+	];
+
+	for (var i = 0; i < controls.length; i++) {
+		createControl.apply(this, controls[i]);
+	}
+
+	run();
+
+	</script>
+    <div id="github"><a href="https://github.com/kallaspriit/KalmanJS" target="_blank">Github Project</a><a href="https://github.com/kallaspriit/KalmanJS/zipball/master">Download Latest</a></div>
+</body>
+</html>

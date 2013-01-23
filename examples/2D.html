@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>KalmanJS :: 2D Linear Kalman Filter</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+	<script src="lib/jquery/jquery-1.8.2.min.js"></script>
+	<script src="lib/jquery/jquery.slider-1.3.js"></script>
+	<link rel="stylesheet" href="lib/jquery/jquery.slider-1.3.css" type="text/css">
+	<script src="common.js"></script>
+	<script src="lib/plotjs/PlotJS.js"></script>
+	<script src="lib/sylvester/sylvester.js"></script>
+	<script src="lib/kalmanjs/LinearKalmanFilter.js"></script>
+	<link rel="stylesheet" href="style/style.css">
+</head>
+<body>
+    <canvas id="data-plot" class="plot-main"></canvas>
+    <canvas id="predicted-state-plot" class="plot-sub"></canvas>
+    <canvas id="predicted-probability-plot" class="plot-sub"></canvas>
+    <canvas id="covariance-plot" class="plot-sub"></canvas>
+    <canvas id="gain-plot" class="plot-sub"></canvas>
+    <canvas id="innovation-plot" class="plot-sub"></canvas>
+    <canvas id="innovation-covariance-plot" class="plot-sub"></canvas>
+
+    <div id="controls"></div>
+
+	<script>
+
+	// Multi-variable cannonball
+	Cannon = function(gravity, angle, muzzleVelocity, noise) {
+		this.angle = angle;
+		this.muzzleVelocity = muzzleVelocity;
+		this.gravity = [0, gravity];
+		this.velocity = [this.muzzleVelocity * Math.cos(this.angle * Math.PI / 180.0), this.muzzleVelocity * Math.sin(angle * Math.PI / 180.0)];
+		this.pos = [0, 0];
+		this.noise = noise;
+		
+		this.getX = function() {
+			return this.pos[0];
+		};
+		
+		this.getY = function() {
+			return this.pos[1];
+		};
+		
+		this.getMeasurementX = function() {
+			return Math.randomGaussian(this.noise, this.getX());
+		};
+		
+		this.getMeasurementY = function() {
+			return Math.randomGaussian(this.noise, this.getY());
+		};
+	
+		this.getVelocityX = function() {
+			return this.velocity[0];
+		};
+		
+		this.getVelocityY = function() {
+			return this.velocity[1];
+		};
+		
+		this.hasLanded = function() {
+			return this.pos[1] < 0.0;
+		};
+	
+		this.step = function(dt) {
+			var stepGravity = [
+					this.gravity[0] * dt,
+					this.gravity[1] * dt
+				];
+		
+			this.velocity = [
+				this.velocity[0] + stepGravity[0],
+				this.velocity[1] + stepGravity[1]
+			];
+		
+			var stepVelocity = [
+				this.velocity[0] * dt,
+				this.velocity[1] * dt
+			];
+		
+			this.pos = [
+				this.pos[0] + stepVelocity[0],
+				this.pos[1] + stepVelocity[1]
+			];
+		};
+	};
+
+	var options = {
+		muzzleVelocity: 100.0,
+		angle: 45.0,
+		gravity: -9.81,
+		initialCovariance: 0.0,
+		processError: 0.0,
+		measurementError: 0.2,
+		noise: 30.0,
+		dt: 0.1,
+		observationCutoff: 1000
+	};
+
+	function run() {
+		var cannon = new Cannon(options.gravity, options.angle, options.muzzleVelocity, options.noise),
+			startPosX = 0.0,
+			startPosY = 0.0,
+			startVelocityX = options.muzzleVelocity * Math.cos(options.angle * Math.PI / 180),
+			startVelocityY = options.muzzleVelocity * Math.sin(options.angle * Math.PI / 180);
+
+		// This is the state transition vector, which represents part of the kinematics.
+		// 1, ts, 0,  0  =>  x(n+1) = x(n) + vx(n)
+		// 0,  1, 0,  0  => vx(n+1) =        vx(n)
+		// 0,  0, 1, ts  =>  y(n+1) =              y(n) + vy(n)
+		// 0,  0, 0,  1  => vy(n+1) =                     vy(n)
+		// Remember, acceleration gets added to these at the control vector.
+		var stateTransitionMatrix = $M([
+			[1, options.dt, 0, 0],
+			[0, 1, 0, 0],
+			[0, 0, 1, options.dt],
+			[0, 0, 0, 1]
+		]);
+
+		// The control vector, which adds acceleration to the kinematic equations.
+		// 0          =>  x(n+1) =  x(n+1)
+		// 0          => vx(n+1) = vx(n+1)
+		// -9.81*ts^2 =>  y(n+1) =  y(n+1) + 0.5*-9.81*ts^2
+		// -9.81*ts   => vy(n+1) = vy(n+1) + -9.81*ts
+		var controlMatrix = $M([
+				[0, 0, 0, 0],
+				[0, 0, 0, 0],
+				[0, 0, 1, 0],
+				[0, 0, 0, 1]
+			]),
+			controlVector = $M([
+				[0],
+				[0],
+				[0.5 * options.gravity * options.dt * options.dt],
+				[options.gravity * options.dt]
+			]);
+
+		// After state transition and control, here are the equations:
+		//  x(n+1) = x(n) + vx(n)
+		// vx(n+1) = vx(n)
+		//  y(n+1) = y(n) + vy(n) - 0.5*9.81*ts^2
+		// vy(n+1) = vy(n) + -9.81*ts
+		// Which, if you recall, are the equations of motion for a parabola.  Perfect.
+
+		// Observation matrix is the identity matrix, since we can get direct
+		// measurements of all values in our example.
+		var observationMatrix = $M([
+			[1, 0, 0, 0],
+			[0, 1, 0, 0],
+			[0, 0, 1, 0],
+			[0, 0, 0, 1]
+		]);
+
+		// This is our guess of the initial state.  I intentionally set the Y value
+		// wrong to illustrate how fast the Kalman filter will pick up on that.
+		var initialStateEstimate = $M([
+				[startPosX],
+				[startVelocityX],
+				[startPosY],
+				[startVelocityY]
+			]),
+			initialCovarianceEstimate = $M([
+				[options.initialCovariance, 0, 0, 0],
+				[0, options.initialCovariance, 0, 0],
+				[0, 0, options.initialCovariance, 0],
+				[0, 0, 0, options.initialCovariance]
+			]),
+			processErrorEstimate = $M([
+				[options.processError, 0, 0, 0],
+				[0, options.processError, 0, 0],
+				[0, 0, options.processError, 0],
+				[0, 0, 0, options.processError]
+			]),
+			measurementErrorEstimate = $M([
+				[options.measurementError, 0, 0, 0],
+				[0, options.measurementError, 0, 0],
+				[0, 0, options.measurementError, 0],
+				[0, 0, 0, options.measurementError]
+			]);
+
+		var filter = new LinearKalmanFilter(
+				stateTransitionMatrix,
+				controlMatrix,
+				observationMatrix,
+				initialStateEstimate,
+				initialCovarianceEstimate,
+				processErrorEstimate,
+				measurementErrorEstimate
+			),
+			dataPlot = new PlotJS(),
+			predictedStatePlot = new PlotJS(),
+			predictedProbabilityPlot = new PlotJS(),
+			covariancePlot = new PlotJS(),
+			gainPlot = new PlotJS(),
+			innovationPlot = new PlotJS(),
+			innovationCovariancePlot = new PlotJS(),
+			realPos = {},
+			measuredPos = {},
+			filterPos = {},
+			predictedPosX = [], predictedPosY = [], predictedVelX = [], predictedVelY = [],
+			probabilityPosX = [], probabilityPosY = [], probabilityVelX = [], probabilityVelY = [],
+			covariancePosX = [], covariancePosY = [], covarianceVelX = [], covarianceVelY = [],
+			gainPosX = [], gainPosY = [], gainVelX = [], gainVelY = [],
+			innovationPosX = [], innovationPosY = [], innovationVelX = [], innovationVelY = [],
+			innovationCovariancePosX = [], innovationCovariancePosY = [], innovationCovarianceVelX = [], innovationCovarianceVelY = [],
+			realX, realY,
+			measurementX, measurementY,
+			velocityX, velocityY,
+			measurementVector,
+			filterState, filterX, filterY,
+			gain,
+			innovation,
+			innovationCovariance,
+			step = 0;
+
+		while (!cannon.hasLanded()) {
+			cannon.step(options.dt);
+
+			realX = cannon.getX();
+			realY = cannon.getY();
+			measurementX = cannon.getMeasurementX();
+			measurementY = cannon.getMeasurementY();
+			velocityX = cannon.getVelocityX();
+			velocityY = cannon.getVelocityY();
+
+			measurementVector = $M([
+				[measurementX],
+				[velocityX],
+				[measurementY],
+				[velocityY]
+			]);
+
+			filter.predict(controlVector);
+			filter.observe(realX < options.observationCutoff ? measurementVector : null);
+			filter.update();
+
+			filterState = filter.getStateEstimate();
+			/*q = {
+				x: covariance.a11
+			}*/
+
+			filterX = filterState.e(1, 1);
+			filterY = filterState.e(3, 1);
+
+			realPos[realX] = realY;
+			measuredPos[measurementX] = measurementY;
+			filterPos[filterX] = filterY;
+
+			predictedPosY.push(filter.predictedStateEstimate.e(3, 1));
+			predictedPosX.push(filter.predictedStateEstimate.e(1, 1));
+			predictedVelY.push(filter.predictedStateEstimate.e(4, 1));
+			predictedVelX.push(filter.predictedStateEstimate.e(2, 1));
+
+			probabilityPosY.push(filter.predictedProbabilityEstimate.e(3, 1));
+			probabilityPosX.push(filter.predictedProbabilityEstimate.e(1, 1));
+			probabilityVelY.push(filter.predictedProbabilityEstimate.e(4, 1));
+			probabilityVelX.push(filter.predictedProbabilityEstimate.e(2, 1));
+
+			covariancePosY.push(filter.covarianceEstimate.e(3, 1));
+			covariancePosX.push(filter.covarianceEstimate.e(1, 1));
+			covarianceVelY.push(filter.covarianceEstimate.e(4, 1));
+			covarianceVelX.push(filter.covarianceEstimate.e(2, 1));
+
+			gainPosY.push(filter.kalmanGain.e(3, 1));
+			gainPosX.push(filter.kalmanGain.e(1, 1));
+			gainVelY.push(filter.kalmanGain.e(4, 1));
+			gainVelX.push(filter.kalmanGain.e(2, 1));
+
+			innovationPosY.push(filter.innovation.e(3, 1));
+			innovationPosX.push(filter.innovation.e(1, 1));
+			innovationVelY.push(filter.innovation.e(4, 1));
+			innovationVelX.push(filter.innovation.e(2, 1));
+
+			innovationCovariancePosY.push(filter.innovationCovariance.e(3, 1));
+			innovationCovariancePosX.push(filter.innovationCovariance.e(1, 1));
+			innovationCovarianceVelY.push(filter.innovationCovariance.e(4, 1));
+			innovationCovarianceVelX.push(filter.innovationCovariance.e(2, 1));
+
+			step++;
+
+			//console.log('#' + step, filter);
+		}
+
+		dataPlot
+			.addData(realPos, 'Real position')
+			.addData(measuredPos, 'Measured position')
+			.addData(filterPos, 'Filter position')
+			.setTitle('Multi-Variable Kalman Filter - Cannonball Flight')
+			.draw('data-plot', {
+				showPoints: false,
+				drawLegend: true,
+				paddingTop: 60,
+				rangeMin: 0,
+				rangeMax: 100
+			});
+
+		predictedStatePlot
+			.addData(predictedPosX, 'Px')
+			.addData(predictedPosY, 'Py')
+			.addData(predictedVelX, 'Vx')
+			.addData(predictedVelY, 'Vy')
+			.setTitle('State estimate')
+			.draw('predicted-state-plot', {
+				showPoints: false,
+				drawLegend: true,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: 0,
+				rangeMax: 250
+			});
+
+		predictedProbabilityPlot
+			.addData(probabilityPosX, 'Px')
+			.addData(probabilityPosY, 'Py')
+			.addData(probabilityVelX, 'Vx')
+			.addData(probabilityVelY, 'Vy')
+			.setTitle('Probability estimate')
+			.draw('predicted-probability-plot', {
+				showPoints: false,
+				drawLegend: true,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: 0,
+				rangeMax: 5
+			});
+
+		covariancePlot
+			.addData(covariancePosX, 'Px')
+			.addData(covariancePosY, 'Py')
+			.addData(covarianceVelX, 'Vx')
+			.addData(covarianceVelY, 'Vy')
+			.setTitle('Covariance estimate')
+			.draw('covariance-plot', {
+				showPoints: false,
+				drawLegend: true,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: 0,
+				rangeMax: 5
+			});
+
+		gainPlot
+			.addData(gainPosX, 'Px')
+			.addData(gainPosY, 'Py')
+			.addData(gainVelX, 'Vx')
+			.addData(gainVelY, 'Vy')
+			.setTitle('Kalman gain')
+			.draw('gain-plot', {
+				showPoints: false,
+				drawLegend: true,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: 0,
+				rangeMax: 0.5
+			});
+
+		innovationPlot
+			.addData(innovationPosX, 'Px')
+			.addData(innovationPosY, 'Py')
+			.addData(innovationVelX, 'Vx')
+			.addData(innovationVelY, 'Vy')
+			.setTitle('Innovation')
+			.draw('innovation-plot', {
+				showPoints: false,
+				drawLegend: true,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: -30,
+				rangeMax: 30
+			});
+
+		innovationCovariancePlot
+			.addData(innovationCovariancePosX, 'Px')
+			.addData(innovationCovariancePosY, 'Py')
+			.addData(innovationCovarianceVelX, 'Vx')
+			.addData(innovationCovarianceVelY, 'Vy')
+			.setTitle('Innovation covariance')
+			.draw('innovation-covariance-plot', {
+				showPoints: false,
+				drawLegend: true,
+				valueDecimals: 1,
+				paddingTop: 60,
+				rangeMin: -1,
+				rangeMax: 1
+			});
+	}
+
+	var controls = [
+		// control              value       min         max         step
+		['muzzleVelocity',      50.0,       0,          100,        1],
+		['angle',               60.0,       1,          90,         1],
+		['gravity',             -9.81,      -20,        0,          0.1],
+		['initialCovariance',   50.0,       0,          100,        1],
+		['processError',        0.0,        0,          1,          0.001],
+		['measurementError',    50,         0,          100,        0.1],
+		['noise',               10.0,       0,          50,         1],
+		['dt',                  0.02,       0.01,       0.2,        0.01],
+		['observationCutoff',   250,        10,         500,       10]
+	];
+
+	for (var i = 0; i < controls.length; i++) {
+		createControl.apply(this, controls[i]);
+	}
+
+	run();
+	
+	</script>
+    <div id="github"><a href="https://github.com/kallaspriit/KalmanJS" target="_blank">Github Project</a><a href="https://github.com/kallaspriit/KalmanJS/zipball/master">Download Latest</a></div>
+</body>
+</html>
